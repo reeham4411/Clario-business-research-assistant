@@ -22,7 +22,7 @@ Conversation History:
 {history}
 
 Instructions:
-- Write a comprehensive, well-organized response directly addressing the user's query
+- Generate a concise, structured final response under 300 words,directly addressing the user's query
 - Use clear sections with headers where appropriate
 - If data is limited, acknowledge it honestly
 - Keep context from conversation history for follow-up questions

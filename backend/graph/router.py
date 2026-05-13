@@ -8,8 +8,16 @@ def route_after_clarity(state: ResearchState) -> str:
     return "planning_agent"
 
 
-def route_after_research(state: ResearchState) -> str:
-    """Always route to validator agent regardless of confidence score."""
+def route_after_research(state):
+    """
+    Route after research based on confidence score.
+    """
+
+    confidence = state.get("confidence_score", 0)
+
+    if confidence >= 6:
+        return "synthesis_agent"
+
     return "validator_agent"
 
 

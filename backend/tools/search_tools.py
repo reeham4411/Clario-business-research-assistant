@@ -8,7 +8,7 @@ load_dotenv()
 client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 
-def tavily_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+def tavily_search(query: str, max_results: int = 2) -> List[Dict[str, Any]]:
     """
     Run a Tavily search and return structured results.
     Each result contains: title, url, content, score.
