@@ -32,39 +32,45 @@ REASONING: <brief explanation of your assessment>
 """
 
 
+def trim_text(text: str, max_chars: int = 1800) -> str:
+    if not text:
+        return ""
+    text = text.strip()
+    return text[:max_chars] + "..." if len(text) > max_chars else text
+
+
 def validator_agent(state: ResearchState) -> ResearchState:
-    """Assess research quality and decide if it's sufficient."""
     query = state["current_query"]
     company = state.get("company_name", "the company")
     confidence = state.get("confidence_score", 0)
+
     findings = state.get("research_findings", {})
-    summary = findings.get("summary", "No research findings available.")
-    history = format_conversation_history(state.get("messages", []))
-    
+    summary = trim_text(findings.get("summary", "No research findings available."), 1800)
+
     prompt = VALIDATOR_PROMPT.format(
         query=query,
         company=company,
         confidence=confidence,
         summary=summary,
-        history=history,
     )
-    
+
     response = llm.invoke(prompt)
     content = response.content.strip()
-    
+
     lines = {
         line.split(":", 1)[0].strip(): line.split(":", 1)[1].strip()
         for line in content.split("\n")
         if ":" in line
     }
-    
+
     validation_result = lines.get("VALIDATION_RESULT", "insufficient").lower()
     feedback = lines.get("FEEDBACK", "")
+
     if feedback.lower() == "none":
         feedback = ""
-    
+
     return {
         **state,
         "validation_result": validation_result,
-        "validation_feedback": feedback,
+        "validation_feedback": feedback[:300],
     }

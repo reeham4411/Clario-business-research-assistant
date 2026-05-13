@@ -10,4 +10,6 @@ def get_llm(temperature: float = 0.0, model: str = "llama-3.1-8b-instant") -> Ch
         api_key=os.getenv("GROQ_API_KEY"),
         model=model,
         temperature=temperature,
+         timeout=30,
+    max_retries=2,
     )

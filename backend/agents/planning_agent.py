@@ -1,80 +1,95 @@
 import json
 from graph.state import ResearchState
 from utils.llm import get_llm
-from utils.memory import format_conversation_history
 
 llm = get_llm(temperature=0.2)
 
 PLANNING_PROMPT = """You are a Research Planning Agent for a business intelligence assistant.
 
-Given the user's query and company name, generate a structured research plan.
-Identify 3-5 specific research aspects that should be investigated IN PARALLEL to answer the query comprehensively.
+Generate a small research plan for the user's query.
 
 Company: {company}
 User Query: {query}
-Conversation History:
-{history}
 
-Respond in valid JSON only, no extra text:
+Rules:
+- Use only 3 research aspects maximum.
+- Keep aspect names short.
+- Keep search queries short and specific.
+- Do not include conversation history.
+- Return valid JSON only.
+
+JSON format:
 {{
-  "research_goal": "<one sentence describing the overall research goal>",
+  "research_goal": "<one short sentence>",
   "aspects": [
-    "<aspect 1: e.g., Recent news and developments>",
-    "<aspect 2: e.g., Financial performance and metrics>",
-    "<aspect 3: e.g., Leadership and management team>",
-    "<aspect 4: e.g., Competitor landscape>",
-    "<aspect 5: e.g., Products and services overview>"
+    "<aspect 1>",
+    "<aspect 2>",
+    "<aspect 3>"
   ],
   "search_queries": {{
-    "<aspect 1>": "<specific search query for this aspect>",
-    "<aspect 2>": "<specific search query for this aspect>",
-    "<aspect 3>": "<specific search query for this aspect>"
+    "<aspect 1>": "<short search query>",
+    "<aspect 2>": "<short search query>",
+    "<aspect 3>": "<short search query>"
   }}
 }}
 """
 
 
 def planning_agent(state: ResearchState) -> ResearchState:
-    """Generate a structured research plan with parallel research aspects."""
+    """Generate a lightweight research plan."""
+
     company = state.get("company_name", "the company")
     query = state["current_query"]
-    history = format_conversation_history(state.get("messages", []))
-    
-    prompt = PLANNING_PROMPT.format(company=company, query=query, history=history)
+
+    prompt = PLANNING_PROMPT.format(
+        company=company,
+        query=query,
+    )
+
     response = llm.invoke(prompt)
     content = response.content.strip()
-    
+
     # Strip markdown fences if present
     if content.startswith("```"):
-        content = content.split("```")[1]
-        if content.startswith("json"):
-            content = content[4:]
-    content = content.strip()
-    
+        content = content.replace("```json", "").replace("```", "").strip()
+
     try:
         plan = json.loads(content)
+
+        # Safety limits
+        aspects = plan.get("aspects", [])[:3]
+        search_queries = plan.get("search_queries", {})
+
+        plan = {
+            "research_goal": plan.get(
+                "research_goal",
+                f"Research {company} based on the user query."
+            ),
+            "aspects": aspects,
+            "search_queries": {
+                aspect: search_queries.get(aspect, f"{company} {aspect}")
+                for aspect in aspects
+            },
+        }
+
     except Exception:
-        # Fallback plan
+        # Fallback plan with only 3 aspects
         plan = {
             "research_goal": f"Research {company} based on: {query}",
             "aspects": [
-                "Recent news and developments",
+                "Recent developments",
                 "Financial performance",
-                "Leadership and strategy",
-                "Products and services",
-                "Competitor landscape",
+                "Competitors",
             ],
             "search_queries": {
-                "Recent news and developments": f"{company} latest news 2024 2025",
-                "Financial performance": f"{company} financial results revenue earnings",
-                "Leadership and strategy": f"{company} CEO leadership strategy",
-                "Products and services": f"{company} products services offerings",
-                "Competitor landscape": f"{company} competitors market position",
-            }
+                "Recent developments": f"{company} latest business news",
+                "Financial performance": f"{company} revenue earnings financial results",
+                "Competitors": f"{company} competitors market position",
+            },
         }
-    
+
     return {
         **state,
         "research_plan": plan,
-        "research_aspects": plan.get("aspects", []),
+        "research_aspects": plan.get("aspects", [])[:3],
     }

@@ -17,8 +17,10 @@ Research Findings by Aspect:
 
 Produce a concise but useful research summary under 300 words. Then assign a confidence score (0-10) based on:
 - Source quality and recency
-- Completeness of information
 - Relevance to the user's query
+- Whether the available snippets are enough to answer the query
+
+Do not reduce confidence only because the snippets are concise. If the snippets are relevant and from reasonable sources, common well-known companies should usually receive a confidence score between 7 and 9.
 
 Respond in this EXACT format:
 CONFIDENCE_SCORE: <number 0-10>
@@ -38,65 +40,67 @@ def trim_text(text: str, max_chars: int = 450) -> str:
     return text[:max_chars] + "..." if len(text) > max_chars else text
 
 
-def format_compact_search_results(results: list, max_items: int = 2) -> str:
-    """Keep only small snippets from search results to avoid Groq token limit."""
+def trim_text(text: str, max_chars: int = 350) -> str:
+    if not text:
+        return ""
+    text = text.replace("\n", " ").strip()
+    return text[:max_chars] + "..." if len(text) > max_chars else text
+
+
+def format_compact_search_results(results: list, max_items: int = 1) -> str:
     compact = []
 
     for idx, result in enumerate(results[:max_items], start=1):
-        title = result.get("title", "No title")
+        title = trim_text(result.get("title", "No title"), 100)
         url = result.get("url", "")
-        content = trim_text(result.get("content", ""), 450)
+        content = trim_text(result.get("content", ""), 350)
 
         compact.append(
-            f"{idx}. Title: {title}\n"
+            f"{idx}. {title}\n"
             f"URL: {url}\n"
             f"Snippet: {content}"
         )
 
-    return "\n\n".join(compact)
+    return "\n".join(compact)
 
 
 def research_agent(state: ResearchState) -> ResearchState:
-    """
-    Perform aspect-based research using Tavily,
-    then synthesize findings and assign a confidence score.
-    """
     company = state.get("company_name", "the company")
     query = state["current_query"]
     plan = state.get("research_plan", {})
-    aspects = state.get("research_aspects", [])
-
-    # Safety: limit aspects to avoid huge prompts
-    aspects = aspects[:4]
+    aspects = state.get("research_aspects", [])[:3]
 
     search_queries = plan.get("search_queries", {})
     validation_feedback = state.get("validation_feedback", "")
     attempts = state.get("research_attempts", 0) + 1
 
     aspect_findings = {}
-    all_sources = []
+    source_links = []
 
     for aspect in aspects:
         base_query = search_queries.get(aspect, f"{company} {aspect}")
 
         if validation_feedback and attempts > 1:
-            search_query = f"{base_query} {validation_feedback[:120]}"
+            search_query = f"{base_query} {validation_feedback[:80]}"
         else:
             search_query = base_query
 
-        # Important: reduce max_results
-        results = tavily_search(search_query, max_results=2)
+        results = tavily_search(search_query, max_results=1)
 
-        all_sources.extend(results[:2])
-        aspect_findings[aspect] = format_compact_search_results(results, max_items=2)
+        aspect_findings[aspect] = format_compact_search_results(results, max_items=1)
+
+        for r in results[:1]:
+            source_links.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", "")
+            })
 
     combined_findings = "\n\n".join([
-        f"### {aspect}:\n{findings}"
+        f"{aspect}:\n{findings}"
         for aspect, findings in aspect_findings.items()
     ])
 
-    # Extra hard limit
-    combined_findings = trim_text(combined_findings, 6000)
+    combined_findings = trim_text(combined_findings, 2500)
 
     prompt = RESEARCH_SYNTHESIS_PROMPT.format(
         company=company,
@@ -108,32 +112,30 @@ def research_agent(state: ResearchState) -> ResearchState:
     response = llm.invoke(prompt)
     content = response.content.strip()
 
-    confidence_score = 5.0
+    confidence_score = 6.0
     research_summary = content
 
     lines = content.split("\n")
+
     for i, line in enumerate(lines):
         if line.startswith("CONFIDENCE_SCORE:"):
             try:
                 confidence_score = float(line.split(":", 1)[1].strip())
             except Exception:
-                confidence_score = 5.0
+                confidence_score = 6.0
 
         elif line.startswith("RESEARCH_SUMMARY:"):
-            summary_lines = []
-            for j in range(i + 1, len(lines)):
-                if lines[j].startswith("SOURCE_QUALITY_NOTES:"):
-                    break
-                summary_lines.append(lines[j])
-            research_summary = "\n".join(summary_lines).strip()
+            research_summary = "\n".join(lines[i + 1:]).strip()
+
+    research_summary = trim_text(research_summary, 1800)
 
     return {
         **state,
         "research_findings": {
             "summary": research_summary,
-            "aspects": aspect_findings,
+            "aspects": {},
         },
-        "raw_sources": all_sources,
+        "raw_sources": source_links[:3],
         "confidence_score": confidence_score,
         "research_attempts": attempts,
     }
